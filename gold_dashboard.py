@@ -195,7 +195,6 @@ with col2:
             border: 2px solid white;
             border-radius: 12px;
             overflow: hidden;
-            background-color: #00aa00;  /* GREEN for visual debug */
         ">
             <div id="embed" style="
                 position: absolute;
