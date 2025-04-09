@@ -225,7 +225,7 @@ with col2:
             }};
             var chartBV = new BullionVaultChart(options, 'embed');
         </script>
-    """, height=chart_height + 40)
+    """, height=chart_height + 45)
 
 # ----- Column 3: News -----
 with col3:
