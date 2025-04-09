@@ -242,14 +242,32 @@ with col3:
         if not feed.entries:
             st.warning("⚠️ No news available.")
         else:
-            for entry in feed.entries[:13]:
+            shown = 0
+            for entry in feed.entries:
+                if shown >= 13:
+                    break
+
                 title = entry.get("title", "No title")
                 link = entry.get("link", "#")
                 pub_date = entry.get("published", "No date")
                 image_url = ""
+
+                # Get the image URL if available
                 if "media_content" in entry and len(entry.media_content) > 0:
                     image_url = entry.media_content[0].get("url", "")
 
+                # Skip if image_url is missing or unreachable
+                if not image_url:
+                    continue
+
+                try:
+                    img_check = requests.head(image_url, timeout=5)
+                    if img_check.status_code != 200:
+                        continue  # Broken image
+                except:
+                    continue  # Error checking image
+
+                # Render the news block
                 st.markdown(
                     f"""
                     <div style="display: flex; margin-bottom: 15px;">
@@ -268,5 +286,9 @@ with col3:
                     """,
                     unsafe_allow_html=True
                 )
+                shown += 1
+
+            if shown == 0:
+                st.warning("⚠️ No news with valid thumbnails found.")
     except Exception as e:
         st.error(f"❌ Failed to fetch news feed: {e}")
