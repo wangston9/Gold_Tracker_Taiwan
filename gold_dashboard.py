@@ -190,18 +190,19 @@ with col2:
     st.components.v1.html(f"""
         <div style="
             position: relative;
-            height: {chart_height}px;
+            height: {chart_height + 24}px;
             width: 100%;
             border: 2px solid white;
             border-radius: 12px;
             overflow: hidden;
+            background-color: #00aa00;  /* Keep GREEN background for visual contrast */
         ">
             <div id="embed" style="
                 position: absolute;
                 top: 0;
                 left: 0;
                 width: 100%;
-                height: calc(100% - 8px);
+                height: calc(100% - 24px);  /* Give more room for x-axis labels */
             "></div>
         </div>
 
@@ -224,7 +225,7 @@ with col2:
             }};
             var chartBV = new BullionVaultChart(options, 'embed');
         </script>
-    """, height=chart_height)
+    """, height=chart_height + 24)
 
 # ----- Column 3: News -----
 with col3:
