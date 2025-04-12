@@ -6,6 +6,16 @@ import pytz
 import ssl
 import urllib.request
 
+# Convert GMT published time string to Taipei time
+def convert_gmt_string_to_taipei(gmt_str):
+    try:
+        gmt_time = datetime.strptime(gmt_str, "%a, %d %b %Y %H:%M:%S %Z")
+        gmt_time = pytz.timezone("GMT").localize(gmt_time)
+        taipei_time = gmt_time.astimezone(pytz.timezone("Asia/Taipei"))
+        return taipei_time.strftime("%Y-%m-%d %H:%M:%S")
+    except:
+        return gmt_str  # fallback to original if format parsing fails
+
 st.set_page_config(page_title="Gold Tracker", layout="wide")
 
 # Shift entire layout upward
@@ -19,9 +29,9 @@ st.markdown("""
 
 # Constants
 USD_TO_TWD_FALLBACK = 33.07
-DISCOUNT_MIN = 0.49
+DISCOUNT_MIN = 0.12
 DISCOUNT_MAX = 1.16
-DISCOUNT_DEFAULT = 0.66
+DISCOUNT_DEFAULT = 0.44
 
 # Wrapped metric (custom metric with wrapping and styling)
 def wrapped_metric(label, value, delta=None):
@@ -57,20 +67,19 @@ def get_usd_to_twd():
         st.warning("⚠️ Using fallback exchange rate 33.07")
     return USD_TO_TWD_FALLBACK
 
-# Gold price in USD/oz
-def get_gold_price_usd_per_oz(api_key):
+# Gold price in USD/oz (no API key required)
+def get_gold_price_usd_per_oz():
     url = "https://api.gold-api.com/price/XAU"
-    headers = {
-        "x-access-token": api_key,
-        "Content-Type": "application/json"
-    }
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, timeout=10)
+        if response.status_code != 200:
+            st.error(f"❌ API returned status code {response.status_code}")
+            return 0
         data = response.json()
         if "price" in data:
             return data["price"]
         else:
-            st.error("❌ Failed to fetch gold price.")
+            st.error("❌ 'price' field not found in API response.")
     except Exception as e:
         st.error(f"❌ Error fetching gold price: {e}")
     return 0
@@ -91,13 +100,12 @@ def get_taiwan_time():
     return datetime.now(taipei).strftime("%Y-%m-%d %H:%M:%S")
 
 # Layout
-col1, col2, col3 = st.columns([1.7, 1.5, 1])
+col1, col2, col3 = st.columns([1.4, 1.6, 1])
 
 # ----- Column 1: Input + Results -----
 with col1:
-    st.markdown("<h4 style='margin-bottom: 0;'>💰 Gold Price Tracker</h4><hr style='margin-top: 6px;'>", unsafe_allow_html=True)
+    st.markdown("<h4 style='margin-bottom: 0;'>💰 Gold Investment Tracker</h4><hr style='margin-top: 6px;'>", unsafe_allow_html=True)
 
-    api_key = "YOUR_GOLD_API_KEY_HERE"
     buy_price = st.number_input("💵 Your Buy Price (TWD per gram)", value=3254.0)
     weight = st.number_input("⚖️ Weight (grams)", value=308.0)
     discount_percent = st.slider("📉 Choose Bank Buy Discount (%)",
@@ -105,17 +113,41 @@ with col1:
                                  max_value=DISCOUNT_MAX,
                                  value=DISCOUNT_DEFAULT,
                                  step=0.01)
+    
+    col_left, col_center, col_right = st.columns([1.5, 2, 1.5])
+    with col_left:
+        st.markdown("<span style='font-size: 12px; color: lightgray;'>Market Less Volatile</span>", unsafe_allow_html=True)
+    with col_right:
+        st.markdown("<span style='font-size: 12px; color: lightgray; float: right;'>Market More volatile</span>", unsafe_allow_html=True)
 
+    # Initialize session state
     if "usd_per_oz" not in st.session_state:
         st.session_state.usd_per_oz = 0
     if "usd_to_twd" not in st.session_state:
         st.session_state.usd_to_twd = USD_TO_TWD_FALLBACK
+    if "mode" not in st.session_state:
+        st.session_state.mode = None
 
-    if st.button("📈 Show Profit / Loss"):
-        st.session_state.usd_per_oz = get_gold_price_usd_per_oz(api_key)
-        st.session_state.usd_to_twd = get_usd_to_twd()
-        st.session_state.timestamp = get_taiwan_time()
+    # Buttons for live/manual input
+    col_btn1, col_btn2 = st.columns([1, 1.2])
 
+    with col_btn1:
+        st.markdown("✍️ Spot Price (USD/oz, Live)", unsafe_allow_html=True)
+        if st.button("📈 Show Profit / Loss (live)"):
+            st.session_state.usd_per_oz = get_gold_price_usd_per_oz()
+            st.session_state.usd_to_twd = get_usd_to_twd()
+            st.session_state.timestamp = get_taiwan_time()
+            st.session_state.mode = "live"
+
+    with col_btn2:
+        manual_input = st.number_input("✍️ Spot Price (USD/oz, Manual)", value= 3063.48, format="%.2f")
+        if st.button("📝 Show Profit / Loss (manual input)"):
+            st.session_state.usd_per_oz = manual_input
+            st.session_state.usd_to_twd = get_usd_to_twd()
+            st.session_state.timestamp = get_taiwan_time()
+            st.session_state.mode = "manual"
+
+    # Display results
     if st.session_state.usd_per_oz > 0:
         usd_oz = st.session_state.usd_per_oz
         twd_rate = st.session_state.usd_to_twd
@@ -132,11 +164,16 @@ with col1:
         min_profit, _ = calculate_profit(buy_price, weight, min_sell)
         max_profit, _ = calculate_profit(buy_price, weight, max_sell)
 
-        st.markdown(f"🕒 Last Updated (Taiwan Time): **{st.session_state.timestamp}**")
+        mode_label = "🛰️ Live" if st.session_state.mode == "live" else "✍️ Manual"
+        st.markdown(f"🕒 Last Updated (Taiwan Time): **{st.session_state.timestamp}** &nbsp;&nbsp;&nbsp; 🔄 Conversion Rate: **1 USD = {st.session_state.usd_to_twd:.4f} TWD** &nbsp;&nbsp;&nbsp; 🧭 Mode: **{mode_label}**", unsafe_allow_html=True)
 
-        wrapped_metric("📍 Spot Price (USD/oz)", f"{usd_oz:.2f}")
-        wrapped_metric("📍 Spot Price (TWD/g)", f"{spot_price:.2f}")
-        wrapped_metric("🧮 Discount Used", f"{discount_percent:.2f}%")
+        col_spot1, col_spot2, col_spot3 = st.columns(3)
+        with col_spot1:
+            wrapped_metric("📍 Spot Price (USD/oz)", f"{usd_oz:.2f}")
+        with col_spot2:
+            wrapped_metric("📍 Spot Price (TWD/g)", f"{spot_price:.2f}")
+        with col_spot3:
+            wrapped_metric("🧮 Discount Used", f"{discount_percent:.2f}%")
 
         col4, col5 = st.columns(2)
         with col4:
@@ -168,10 +205,10 @@ with col1:
         <div style="
             background-color: {bg_color};
             border-radius: 10px;
-            padding: 14px;
+            padding: 56px; 
             margin-top: 10px;
             color: white;
-            font-size: 16px;
+            font-size: 26px;
             text-align: center;
             font-weight: bold;
         ">
@@ -179,30 +216,30 @@ with col1:
         </div>
         """, unsafe_allow_html=True)
     else:
-        st.info("Click '📈 Show Profit / Loss' to fetch the latest gold and FX prices.")
+        st.info("Click a button above to fetch or manually input gold price and FX rate.")
 
 # ----- Column 2: Chart -----
 with col2:
     st.markdown("<h4 style='margin-bottom: 0;'>📊 Live Gold Price Chart</h4><hr style='margin-top: 6px;'>", unsafe_allow_html=True)
 
-    chart_height = 1020 if st.session_state.usd_per_oz > 0 else 420
+    chart_height = 420
 
     st.components.v1.html(f"""
         <div style="
             position: relative;
-            height: {chart_height + 40}px;
+            height: {chart_height}px;
             width: 100%;
             border: 2px solid white;
             border-radius: 12px;
             overflow: hidden;
-            background-color: white;  /* Clean white background */
+            background-color: #00aa00;
         ">
             <div id="embed" style="
                 position: absolute;
                 top: 0;
                 left: 0;
                 width: 100%;
-                height: calc(100% - 40px);  /* More room at the bottom */
+                height: calc(100% - 8px);
             "></div>
         </div>
 
@@ -214,7 +251,7 @@ with col2:
                 timeframe: '1w',
                 chartType: 'line',
                 miniChartMode: false,
-                miniChartModeAxis: 'oz',
+                miniChartModeAxis: 'both',
                 containerDefinedSize: true,
                 displayLatestPriceLine: true,
                 switchBullion: true,
@@ -225,8 +262,78 @@ with col2:
             }};
             var chartBV = new BullionVaultChart(options, 'embed');
         </script>
-    """, height=chart_height + 45)
+    """, height=chart_height)
 
+    # --- Additional Macroeconomic Charts (2x4 grid) ---
+    st.markdown("<h5 style='margin-top: 20px;'>📉 Key Macroeconomic Indicators</h5>", unsafe_allow_html=True)
+
+    # First Row
+    row1_col1, row1_col2, row1_col3, row1_col4 = st.columns(4)
+    with row1_col1:
+        st.markdown("**📊 Financial Stress Index**", unsafe_allow_html=True)
+        st.components.v1.html("""
+        <iframe src="https://www.tradingview.com/embed-widget/mini-symbol-overview/?symbol=FRED%3ASTLFSI2&locale=en" 
+            width="100%" height="220" frameborder="0" allowtransparency="true" scrolling="no">
+        </iframe>
+        """, height=240)
+        
+    with row1_col2:
+        st.markdown("**📊 US 10-Year Treasury Yield**", unsafe_allow_html=True)
+        st.components.v1.html("""
+        <iframe src="https://www.tradingview.com/embed-widget/mini-symbol-overview/?symbol=FRED%3ADGS10&locale=en" 
+            width="100%" height="220" frameborder="0" allowtransparency="true" scrolling="no">
+        </iframe>
+        """, height=240)
+    
+    with row1_col3:
+        st.markdown("**🛢️ Crude Oil**", unsafe_allow_html=True)
+        st.components.v1.html("""
+        <iframe src="https://www.tradingview.com/embed-widget/mini-symbol-overview/?symbol=TVC%3AUSOIL&locale=en" 
+            width="100%" height="220" frameborder="0" allowtransparency="true" scrolling="no">
+        </iframe>
+        """, height=240)
+    
+    with row1_col4:
+        st.markdown("**🏦 M2 Money Supply**", unsafe_allow_html=True)
+        st.components.v1.html("""
+        <iframe src="https://www.tradingview.com/embed-widget/mini-symbol-overview/?symbol=FRED%3AM2SL&locale=en" 
+            width="100%" height="220" frameborder="0" allowtransparency="true" scrolling="no"></iframe>
+        """, height=240)
+
+
+    # Second Row
+    row2_col1, row2_col2, row2_col3, row2_col4 = st.columns(4)
+    with row2_col1:
+        st.markdown("**🔥 US Consumer Price Index**", unsafe_allow_html=True)
+        st.components.v1.html("""
+        <iframe src="https://www.tradingview.com/embed-widget/mini-symbol-overview/?symbol=FRED%3ACPIAUCSL&locale=en" 
+            width="100%" height="220" frameborder="0" allowtransparency="true" scrolling="no">
+        </iframe>
+        """, height=240)
+
+    with row2_col2:
+        st.markdown("**💵 U.S. Dollar Index**", unsafe_allow_html=True)
+        st.components.v1.html("""
+        <iframe src="https://www.tradingview.com/embed-widget/mini-symbol-overview/?symbol=FRED%3ADTWEXBGS&locale=en" 
+            width="100%" height="220" frameborder="0" allowtransparency="true" scrolling="no">
+        </iframe>
+        """, height=240)
+    
+    with row2_col3:
+        st.markdown("**🪙 Bitcoin / USD**", unsafe_allow_html=True)
+        st.components.v1.html("""
+        <iframe src="https://www.tradingview.com/embed-widget/mini-symbol-overview/?symbol=BINANCE%3ABTCUSDT&locale=en" 
+            width="100%" height="220" frameborder="0" allowtransparency="true" scrolling="no">
+        </iframe>
+        """, height=240)
+    
+    with row2_col4:
+        st.markdown("**⚖️ Gold/Silver Ratio**", unsafe_allow_html=True)
+        st.components.v1.html("""
+        <iframe src="https://www.tradingview.com/embed-widget/mini-symbol-overview/?symbol=TVC%3AGOLDSILVER&locale=en" 
+            width="100%" height="220" frameborder="0" allowtransparency="true" scrolling="no"></iframe>
+        """, height=240)
+        
 # ----- Column 3: News -----
 with col3:
     st.markdown("<h4 style='margin-bottom: 0;'>📰 Gold News</h4><hr style='margin-top: 6px;'>", unsafe_allow_html=True)
@@ -244,30 +351,28 @@ with col3:
         else:
             shown = 0
             for entry in feed.entries:
-                if shown >= 13:
+                if shown >= 15:
                     break
 
                 title = entry.get("title", "No title")
                 link = entry.get("link", "#")
-                pub_date = entry.get("published", "No date")
+                pub_date_raw = entry.get("published", "No date")
+                pub_date = convert_gmt_string_to_taipei(pub_date_raw)
                 image_url = ""
 
-                # Get the image URL if available
                 if "media_content" in entry and len(entry.media_content) > 0:
                     image_url = entry.media_content[0].get("url", "")
 
-                # Skip if image_url is missing or unreachable
                 if not image_url:
                     continue
 
                 try:
                     img_check = requests.head(image_url, timeout=5)
                     if img_check.status_code != 200:
-                        continue  # Broken image
+                        continue
                 except:
-                    continue  # Error checking image
+                    continue
 
-                # Render the news block
                 st.markdown(
                     f"""
                     <div style="display: flex; margin-bottom: 15px;">
@@ -280,7 +385,7 @@ with col3:
                             <a href="{link}" target="_blank" style="text-decoration: none;">
                                 <div style="font-size: 15px; font-weight: 600; color: white;">{title}</div>
                             </a>
-                            <div style="font-size: 12px; color: lightgray;">🗓️ {pub_date}</div>
+                            <div style="font-size: 12px; color: lightgray;">🗓️ {pub_date} (Taipei time)</div>
                         </div>
                     </div>
                     """,
